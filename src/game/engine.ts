@@ -37,7 +37,16 @@ import type {
 
 let contractUidSeq = 1;
 
-export function createGame(seed: number, humanNames: Partial<Record<Seat, string>> = {}): GameState {
+export interface GameOptions {
+  startGold?: number;
+  startGoldBonus?: Partial<Record<Seat, number>>; // 좌석별 보정 (기본 START_GOLD_BONUS)
+}
+
+export function createGame(
+  seed: number,
+  humanNames: Partial<Record<Seat, string>> = {},
+  options: GameOptions = {}
+): GameState {
   const rng = makeRng(seed);
   const cargoDeck = shuffle(buildCargoDeck(), rng);
   const newsDeck = shuffle(NEWS_CARDS, rng);
@@ -50,7 +59,7 @@ export function createGame(seed: number, humanNames: Partial<Record<Seat, string
       seat,
       name: humanNames[seat] ?? (seat === "A" ? "나 (좌석 A)" : `상단 ${seat}`),
       isHuman: seat === "A",
-      gold: START_GOLD,
+      gold: (options.startGold ?? START_GOLD) + (options.startGoldBonus?.[seat] ?? 0),
       goods: zeroGoods(),
       contracts: dealt.map((def) => ({ uid: contractUidSeq++, def, status: "active" as const })),
       informantUsed: false,
@@ -61,6 +70,7 @@ export function createGame(seed: number, humanNames: Partial<Record<Seat, string
 
   const state: GameState = {
     round: 0,
+    priorityOffset: Math.floor(rng() * 4),
     players,
     prices: { ...BASE_PRICE },
     importCap: zeroGoods(),
@@ -132,7 +142,7 @@ export function startRound(state: GameState) {
 
 // 7.1 정보상: 활성 미완료 계약에 해당 상품이 필요한지 YES/NO
 export function resolveInformant(state: GameState, queries: Partial<Record<Seat, InformantQuery>>) {
-  for (const seat of rotationOrder(state.round)) {
+  for (const seat of rotationOrder(state.round, state.priorityOffset)) {
     const q = queries[seat];
     if (!q) continue;
     const p = state.players[seat];
@@ -152,7 +162,7 @@ export function resolveInformant(state: GameState, queries: Partial<Record<Seat,
 
 // 7.4~7.5 이중 봉인 경매
 export function resolveAuction(state: GameState, bids: Record<Seat, Bid>): AuctionResult {
-  const order = rotationOrder(state.round);
+  const order = rotationOrder(state.round, state.priorityOffset);
   const [cargoA, cargoB] = state.cargos;
 
   const rank = (key: "a" | "b", minBid: number): Seat[] =>
@@ -242,7 +252,7 @@ export function resolveMarket(
   state: GameState,
   orders: Record<Seat, MarketOrder[]>
 ): { fills: FillResult[]; priceChanges: Partial<Record<Commodity, number>> } {
-  const order = rotationOrder(state.round);
+  const order = rotationOrder(state.round, state.priorityOffset);
   const fills: FillResult[] = [];
 
   for (const commodity of COMMODITIES) {
@@ -320,7 +330,7 @@ export function canDeliver(state: GameState, p: Player, uid: number): boolean {
 
 // 9. 비밀 계약 배송 (라운드당 1개)
 export function resolveDeliveries(state: GameState, choices: Partial<Record<Seat, DeliveryChoice>>) {
-  const order = rotationOrder(state.round);
+  const order = rotationOrder(state.round, state.priorityOffset);
   for (const seat of order) {
     const choice = choices[seat];
     if (!choice) continue;
@@ -356,7 +366,7 @@ export function resolveDeliveries(state: GameState, choices: Partial<Record<Seat
 
 // 10. 세관 조사
 function runInvestigation(state: GameState, kind: "normal" | "final"): CustomsEvent {
-  const order = rotationOrder(state.round);
+  const order = rotationOrder(state.round, state.priorityOffset);
   const suspects = order.filter((s) => state.players[s].suspicion >= 1);
   if (suspects.length === 0) {
     return { kind, target: null, suspicionAtCheck: 0, penalty: 0 };
@@ -403,7 +413,7 @@ export function finalScore(p: Player): number {
 
 // 4.2 동점 처리 포함 순위
 export function ranking(state: GameState): Seat[] {
-  const order8 = rotationOrder(8);
+  const order8 = rotationOrder(8, state.priorityOffset);
   return [...SEATS].sort((s1, s2) => {
     const p1 = state.players[s1];
     const p2 = state.players[s2];

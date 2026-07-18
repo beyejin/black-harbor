@@ -19,7 +19,7 @@ import {
   rotationOrder,
   startRound,
 } from "./game/engine";
-import { INFORMANT_COST, RESIDUAL_VALUE, makeRng } from "./game/data";
+import { INFORMANT_COST, RESIDUAL_VALUE, RULE_VERSION, makeRng } from "./game/data";
 import type {
   AuctionResult,
   Bid,
@@ -167,11 +167,16 @@ export default function App() {
 /* ── 사이드바: 공개 정보 ── */
 
 function Sidebar({ g, phase }: { g: GameState; phase: Phase }) {
-  const order = g.round >= 1 ? rotationOrder(g.round) : rotationOrder(1);
+  const order =
+    g.round >= 1
+      ? rotationOrder(g.round, g.priorityOffset)
+      : rotationOrder(1, g.priorityOffset);
   const me = g.players[HUMAN];
   return (
     <aside className="sidebar">
-      <h1 className="logo">⚓ 검은 항구</h1>
+      <h1 className="logo">
+        ⚓ 검은 항구 <span className="dim rule-ver">{RULE_VERSION}</span>
+      </h1>
       <div className="round-chip">
         {g.round >= 1 ? `${g.round} / 8 라운드` : "게임 준비"}
         <span className="dim"> · 우선순위 {order.join("→")}</span>

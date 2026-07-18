@@ -99,6 +99,7 @@ export interface GameState {
   news: NewsDef;
   cargos: [CargoDef, CargoDef];
   carryover: Goods; // 유찰 화물 → 다음 라운드 수입 공급
+  priorityOffset: number; // 1라운드 시작 좌석 (시드로 결정, 공개)
   cargoDeck: CargoDef[];
   newsDeck: NewsDef[];
   log: string[];

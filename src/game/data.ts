@@ -15,17 +15,20 @@ export const RESIDUAL_VALUE: Goods = { SPICE: 2, IRON: 2, SILK: 3, RELIC: 4 };
 export const BASE_IMPORT: Goods = { SPICE: 5, IRON: 6, SILK: 4, RELIC: 0 };
 export const BASE_EXPORT: Goods = { SPICE: 4, IRON: 5, SILK: 4, RELIC: 2 };
 
+export const RULE_VERSION = "2.3-playtest";
 export const TOTAL_ROUNDS = 8;
-export const START_GOLD = 20;
+export const START_GOLD = 24;
 export const ALERT_LIMIT = 4;
 export const INFORMANT_COST = 2;
 export const MAX_CONTRACTS_DONE = 3;
 
 export const zeroGoods = (): Goods => ({ SPICE: 0, IRON: 0, SILK: 0, RELIC: 0 });
 
-// 라운드별 회전 우선순위 (3.1)
-export function rotationOrder(round: number): Seat[] {
-  const start = (round - 1) % 4;
+// 라운드별 회전 우선순위 (3.1, 규칙 2.3)
+// 1라운드 시작 좌석은 게임 시드로 무작위 결정해 공개하고, 이후 라운드마다 한 칸씩 회전한다.
+// 고정 스케줄은 어떤 배치든 특정 좌석이 구조적으로 유리해져(시뮬레이션 확인) 시드 오프셋으로 기대값을 균등화한다.
+export function rotationOrder(round: number, offset = 0): Seat[] {
+  const start = (offset + round - 1) % 4;
   return [0, 1, 2, 3].map((i) => SEATS[(start + i) % 4]);
 }
 

@@ -1,4 +1,5 @@
-import { useMemo, useReducer, useRef, useState } from "react";
+import { useReducer, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { aiBid, aiChooseContracts, aiDelivery, aiInformant, aiMarket } from "./game/ai";
 import {
   COMMODITIES,
@@ -44,7 +45,68 @@ type Phase =
   | "roundResult"
   | "final";
 
+type Screen = "lobby" | "room" | "game";
+type RoomMode = "practice" | "create" | "join";
+type SheetKind = "settings" | "help" | "rules" | "log" | null;
+
 const HUMAN: Seat = "A";
+
+const PHASE_STEPS = [
+  { label: "계약 준비", phases: ["setup"] },
+  { label: "항구 소식", phases: ["news"] },
+  { label: "봉인 경매", phases: ["auction", "auctionResult"] },
+  { label: "시장 거래", phases: ["market", "marketResult"] },
+  { label: "계약 배송", phases: ["delivery"] },
+  { label: "세관 정산", phases: ["roundResult", "final"] },
+] as const;
+
+const PHASE_META: Record<Phase, { eyebrow: string; title: string; prompt: string }> = {
+  setup: {
+    eyebrow: "첫 항해를 준비합니다",
+    title: "비밀 계약을 고르세요",
+    prompt: "세 장 중 두 장만 활성화됩니다. 나머지 한 장은 예비 계약으로 남습니다.",
+  },
+  news: {
+    eyebrow: "공용 항구 정보",
+    title: "오늘 밤의 항구 소식",
+    prompt: "소식과 화물을 읽고, 정보상을 쓸지 결정합니다.",
+  },
+  auction: {
+    eyebrow: "모두의 입찰이 아직 봉인되어 있습니다",
+    title: "두 화물을 선점하세요",
+    prompt: "두 화물에 동시에 입찰하고, 하나를 선호 화물로 지정합니다.",
+  },
+  auctionResult: {
+    eyebrow: "봉인이 풀렸습니다",
+    title: "경매 결과 공개",
+    prompt: "누가 화물을 가져갔는지 확인하고 시장으로 이동합니다.",
+  },
+  market: {
+    eyebrow: "플레이어가 만드는 가격",
+    title: "시장 계획을 잠그세요",
+    prompt: "두 주문 슬롯에 구매·판매·뇌물을 배치합니다.",
+  },
+  marketResult: {
+    eyebrow: "시장 장부가 닫혔습니다",
+    title: "시장 결과 공개",
+    prompt: "체결량과 다음 라운드 가격 변화를 확인합니다.",
+  },
+  delivery: {
+    eyebrow: "계약은 아직 비밀입니다",
+    title: "이번 라운드의 계약을 배송하세요",
+    prompt: "안전한 합법 배송과 위험한 밀수 중 하나를 선택합니다.",
+  },
+  roundResult: {
+    eyebrow: "한 라운드가 끝났습니다",
+    title: "세관 정산",
+    prompt: "조사 결과와 상단별 변화를 확인한 뒤 다음 라운드로 이동합니다.",
+  },
+  final: {
+    eyebrow: "여덟 번의 밤이 지났습니다",
+    title: "최종 점수",
+    prompt: "가장 많은 자산을 남긴 상단이 검은 항구를 차지합니다.",
+  },
+};
 
 export default function App() {
   const [seed] = useState(() => Math.floor(Math.random() * 1e9));
@@ -61,8 +123,44 @@ export default function App() {
   const [marketFills, setMarketFills] = useState<FillResult[]>([]);
   const [priceChanges, setPriceChanges] = useState<Partial<Record<Commodity, number>>>({});
   const [customsEvents, setCustomsEvents] = useState<CustomsEvent[]>([]);
+  const [screen, setScreen] = useState<Screen>("lobby");
+  const [roomMode, setRoomMode] = useState<RoomMode>("practice");
+  const [roomName, setRoomName] = useState("야간 항구 #17");
+  const [playerName, setPlayerName] = useState("선장 레벨 17");
+  const [utility, setUtility] = useState<SheetKind>(null);
 
-  const me = g.players[HUMAN];
+  function resetGame() {
+    const nextSeed = Math.floor(Math.random() * 1e9);
+    gameRef.current = createGame(nextSeed);
+    rngRef.current = makeRng(nextSeed ^ 0x9e3779b9);
+    gameRef.current.players[HUMAN].name = playerName.trim() || "항구의 손님";
+    setAuctionResult(null);
+    setMarketFills([]);
+    setPriceChanges({});
+    setCustomsEvents([]);
+    setPhase("setup");
+    force();
+  }
+
+  function openRoom(mode: RoomMode, code = "") {
+    setRoomMode(mode);
+    setRoomName(
+      mode === "create" ? "새로 연 항구" : mode === "join" ? `초대 항구 ${code || "17"}` : "야간 항구 #17"
+    );
+    setUtility(null);
+    setScreen("room");
+  }
+
+  function startGame() {
+    resetGame();
+    setUtility(null);
+    setScreen("game");
+  }
+
+  function goLobby() {
+    setUtility(null);
+    setScreen("lobby");
+  }
 
   function finishSetup(activeUids: number[]) {
     chooseContracts(g, HUMAN, activeUids);
@@ -135,10 +233,48 @@ export default function App() {
     force();
   }
 
+  const utilitySheet = utility ? <UtilitySheet kind={utility} g={g} onClose={() => setUtility(null)} /> : null;
+
+  if (screen === "lobby") {
+    return (
+      <>
+        <LobbyScreen
+          playerName={playerName}
+          onPlayerNameChange={setPlayerName}
+          onOpenRoom={openRoom}
+          onUtility={setUtility}
+        />
+        {utilitySheet}
+      </>
+    );
+  }
+
+  if (screen === "room") {
+    return (
+      <>
+        <RoomScreen
+          g={g}
+          roomName={roomName}
+          roomMode={roomMode}
+          playerName={playerName}
+          onBack={goLobby}
+          onStart={startGame}
+          onUtility={setUtility}
+        />
+        {utilitySheet}
+      </>
+    );
+  }
+
   return (
-    <div className="layout">
-      <Sidebar g={g} phase={phase} />
-      <main className="stage">
+    <>
+      <GameShell
+        g={g}
+        phase={phase}
+        roomName={roomName}
+        onLobby={goLobby}
+        onUtility={setUtility}
+      >
         {phase === "setup" && <SetupPanel g={g} onDone={finishSetup} />}
         {phase === "news" && <NewsPanel g={g} onDone={finishNews} />}
         {phase === "auction" && <AuctionPanel g={g} onDone={finishAuction} />}
@@ -159,129 +295,515 @@ export default function App() {
           <RoundResultPanel g={g} events={customsEvents} onNext={nextRound} />
         )}
         {phase === "final" && <FinalPanel g={g} />}
+      </GameShell>
+      {utilitySheet}
+    </>
+  );
+}
+
+function BrandLockup({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={`brand-lockup ${compact ? "compact" : ""}`}>
+      <span className="brand-symbol" aria-hidden="true">
+        ⚓︎
+      </span>
+      <span className="brand-copy">
+        <strong>검은 항구</strong>
+        <small>밀무역과 경계의 바다</small>
+      </span>
+    </div>
+  );
+}
+
+function LobbyScreen({
+  playerName,
+  onPlayerNameChange,
+  onOpenRoom,
+  onUtility,
+}: {
+  playerName: string;
+  onPlayerNameChange: (name: string) => void;
+  onOpenRoom: (mode: RoomMode, code?: string) => void;
+  onUtility: (kind: Exclude<SheetKind, null>) => void;
+}) {
+  const [roomCode, setRoomCode] = useState("");
+  const [codeError, setCodeError] = useState("");
+
+  function joinByCode() {
+    if (roomCode.trim().length < 3) {
+      setCodeError("방 코드를 세 글자 이상 입력하세요.");
+      return;
+    }
+    setCodeError("");
+    onOpenRoom("join", roomCode.trim().toUpperCase());
+  }
+
+  return (
+    <div className="app-screen lobby-screen">
+      <header className="site-header lobby-header">
+        <BrandLockup />
+        <nav className="utility-nav" aria-label="서비스 메뉴">
+          <button type="button" className="utility-button" onClick={() => onUtility("settings")}>
+            <span aria-hidden="true">◈</span> 설정
+          </button>
+          <button type="button" className="utility-button" onClick={() => onUtility("help")}>
+            <span aria-hidden="true">?</span> 도움말
+          </button>
+          <button type="button" className="utility-button" onClick={() => onUtility("rules")}>
+            <span aria-hidden="true">▤</span> 규칙서
+          </button>
+        </nav>
+      </header>
+
+      <main className="lobby-main">
+        <section className="entry-card framed-card">
+          <div className="card-kicker">BLACK HARBOR · NIGHT TIDE</div>
+          <h1>항구에 입장</h1>
+          <p className="entry-subtitle">밀무역의 밤이 시작됩니다.</p>
+          <div className="ornament-line" aria-hidden="true">
+            <span />⚓︎<span />
+          </div>
+
+          <label className="field-label" htmlFor="captain-name">
+            선장 이름
+          </label>
+          <div className="input-wrap">
+            <input
+              id="captain-name"
+              value={playerName}
+              maxLength={16}
+              onChange={(event) => onPlayerNameChange(event.target.value)}
+              placeholder="선장 이름을 입력하세요"
+            />
+            <span aria-hidden="true">◉</span>
+          </div>
+
+          <label className="field-label" htmlFor="room-code">
+            방 코드 <span>(선택)</span>
+          </label>
+          <div className="input-wrap">
+            <input
+              id="room-code"
+              value={roomCode}
+              onChange={(event) => {
+                setRoomCode(event.target.value);
+                setCodeError("");
+              }}
+              placeholder="방 코드를 입력하세요"
+              maxLength={12}
+            />
+            <span aria-hidden="true">⌘</span>
+          </div>
+          {codeError && <p className="form-error">{codeError}</p>}
+
+          <div className="entry-actions">
+            <button type="button" className="entry-action accent" onClick={() => onOpenRoom("practice")}>
+              <span aria-hidden="true">ϟ</span> 빠른 입장
+            </button>
+            <button type="button" className="entry-action" onClick={() => onOpenRoom("create")}>
+              <span aria-hidden="true">＋</span> 방 만들기
+            </button>
+            <button type="button" className="entry-action gold" onClick={joinByCode}>
+              <span aria-hidden="true">⚓︎</span> 코드로 입장
+            </button>
+          </div>
+
+          <button type="button" className="watch-link" onClick={() => onOpenRoom("practice")}>
+            관전 모드 <span aria-hidden="true">›</span>
+          </button>
+
+          <div className="entry-meta">
+            <span>♟ 4인 고정</span>
+            <span>◷ 25–35분</span>
+            <span>▣ 웹 브라우저 플레이</span>
+          </div>
+        </section>
+
+        <aside className="waiting-card framed-card">
+          <div className="waiting-heading">
+            <div>
+              <span className="card-kicker">HARBOR WATCH</span>
+              <h2>현재 대기방</h2>
+            </div>
+            <span className="participant-count">♟ 2 / 4 참가 중</span>
+          </div>
+
+          <button type="button" className="room-preview" onClick={() => onOpenRoom("practice", "NIGHT-17")}>
+            <span className="room-seat-letter">A</span>
+            <span className="room-avatar avatar-amber">♟</span>
+            <span className="room-preview-copy">
+              <strong>검은 해적</strong>
+              <small>선장 레벨 17</small>
+            </span>
+            <span className="room-seal" aria-hidden="true">
+              ⚓︎
+            </span>
+          </button>
+          <button type="button" className="room-preview" onClick={() => onOpenRoom("practice", "NIGHT-17")}>
+            <span className="room-seat-letter teal">B</span>
+            <span className="room-avatar avatar-teal">◒</span>
+            <span className="room-preview-copy">
+              <strong>바다그림자</strong>
+              <small>선장 레벨 14</small>
+            </span>
+            <span className="room-seal" aria-hidden="true">
+              ⚓︎
+            </span>
+          </button>
+          <div className="room-preview waiting">
+            <span className="room-seat-letter violet">C</span>
+            <span className="room-avatar avatar-empty">♟</span>
+            <span className="room-preview-copy">
+              <strong>참가 대기 중</strong>
+              <small>플레이어를 기다리는 중…</small>
+            </span>
+            <span className="loading-dots" aria-hidden="true">•••</span>
+          </div>
+          <div className="room-preview waiting">
+            <span className="room-seat-letter violet">D</span>
+            <span className="room-avatar avatar-empty">♟</span>
+            <span className="room-preview-copy">
+              <strong>참가 대기 중</strong>
+              <small>플레이어를 기다리는 중…</small>
+            </span>
+            <span className="loading-dots" aria-hidden="true">•••</span>
+          </div>
+
+          <button type="button" className="room-list-button" onClick={() => onOpenRoom("practice")}>
+            <span aria-hidden="true">☷</span> 방 목록 보기
+          </button>
+        </aside>
+      </main>
+
+    </div>
+  );
+}
+
+function RoomScreen({
+  g,
+  roomName,
+  roomMode,
+  playerName,
+  onBack,
+  onStart,
+  onUtility,
+}: {
+  g: GameState;
+  roomName: string;
+  roomMode: RoomMode;
+  playerName: string;
+  onBack: () => void;
+  onStart: () => void;
+  onUtility: (kind: Exclude<SheetKind, null>) => void;
+}) {
+  const modeLabel = roomMode === "create" ? "내가 연 항구" : roomMode === "join" ? "초대받은 항구" : "연습 항해";
+  return (
+    <div className="app-screen room-screen">
+      <header className="site-header room-header">
+        <button type="button" className="back-button" onClick={onBack}>
+          <span aria-hidden="true">‹</span> 항구로 돌아가기
+        </button>
+        <BrandLockup compact />
+        <nav className="utility-nav" aria-label="대기실 메뉴">
+          <button type="button" className="utility-button" onClick={() => onUtility("help")}>
+            <span aria-hidden="true">?</span> 도움말
+          </button>
+          <button type="button" className="utility-button" onClick={() => onUtility("rules")}>
+            <span aria-hidden="true">▤</span> 규칙서
+          </button>
+        </nav>
+      </header>
+
+      <main className="room-main">
+        <section className="room-intro">
+          <span className="card-kicker">{modeLabel} · PRIVATE HARBOR</span>
+          <h1>항해 준비</h1>
+          <p>네 명의 상단이 선석을 채우면 검은 항구의 첫 소식이 공개됩니다.</p>
+          <span className="room-name-label">현재 항구 · {roomName}</span>
+          <div className="room-code-block">
+            <span>방 코드</span>
+            <strong>BH-0417</strong>
+            <button
+              type="button"
+              className="copy-button"
+              onClick={() => void navigator.clipboard?.writeText("BH-0417")}
+            >
+              복사
+            </button>
+          </div>
+          <div className="room-rules">
+            <span><b>4</b>인 고정</span>
+            <span><b>8</b>라운드</span>
+            <span><b>25–35</b>분</span>
+          </div>
+        </section>
+
+        <section className="berth-card framed-card">
+          <div className="berth-heading">
+            <div>
+              <span className="card-kicker">HARBOR BERTHS</span>
+              <h2>현재 승선자</h2>
+            </div>
+            <span className="participant-count">4 / 4 준비 완료</span>
+          </div>
+          <div className="berth-grid">
+            {SEATS.map((seat, index) => {
+              const isHuman = seat === HUMAN;
+              const p = g.players[seat];
+              return (
+                <article key={seat} className={`berth-seat ${isHuman ? "human" : "ai"}`}>
+                  <span className={`room-seat-letter ${index % 2 === 0 ? "" : "teal"}`}>{seat}</span>
+                  <span className="berth-avatar">{isHuman ? "♟" : ["◒", "◐", "◓"][index - 1]}</span>
+                  <span className="berth-copy">
+                    <strong>{isHuman ? playerName || "항구의 손님" : p.name}</strong>
+                    <small>{isHuman ? "나 · 출항 준비 완료" : "AI 상단 · 준비 완료"}</small>
+                  </span>
+                  <span className="ready-mark" aria-label="준비 완료">✓</span>
+                </article>
+              );
+            })}
+          </div>
+          <div className="berth-footer">
+            <p><span className="status-dot" /> AI 상단 3명이 자리를 지키고 있습니다.</p>
+            <button type="button" className="primary-button" onClick={onStart}>
+              연습 항해 시작 <span aria-hidden="true">›</span>
+            </button>
+          </div>
+        </section>
       </main>
     </div>
   );
 }
 
-/* ── 사이드바: 공개 정보 ── */
-
-function Sidebar({ g, phase }: { g: GameState; phase: Phase }) {
-  const order =
-    g.round >= 1
-      ? rotationOrder(g.round, g.priorityOffset)
-      : rotationOrder(1, g.priorityOffset);
-  const me = g.players[HUMAN];
+function GameShell({
+  g,
+  phase,
+  roomName,
+  onLobby,
+  onUtility,
+  children,
+}: {
+  g: GameState;
+  phase: Phase;
+  roomName: string;
+  onLobby: () => void;
+  onUtility: (kind: Exclude<SheetKind, null>) => void;
+  children: ReactNode;
+}) {
+  const activeStep = PHASE_STEPS.findIndex((step) => (step.phases as readonly string[]).includes(phase));
+  const order = rotationOrder(g.round >= 1 ? g.round : 1, g.priorityOffset);
+  const phaseMeta = PHASE_META[phase];
   return (
-    <aside className="sidebar">
-      <h1 className="logo">
-        ⚓ 검은 항구 <span className="dim rule-ver">{RULE_VERSION}</span>
-      </h1>
-      <div className="round-chip">
-        {g.round >= 1 ? `${g.round} / 8 라운드` : "게임 준비"}
-        <span className="dim"> · 우선순위 {order.join("→")}</span>
-      </div>
-
-      <section>
-        <h3>시장 (현재가 · 수입/수출 한도)</h3>
-        <table className="mini">
-          <tbody>
-            {COMMODITIES.map((c) => (
-              <tr key={c}>
-                <td>{COMMODITY_KO[c]}</td>
-                <td className="num gold-text">{g.prices[c]}</td>
-                <td className="num dim">
-                  {g.importCap[c]} / {g.exportCap[c]}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      <section>
-        <h3>
-          세관 경계 <span className={g.alert >= 3 ? "danger" : ""}>{g.alert} / 4</span>
-        </h3>
-        <div className="alert-bar">
-          {[0, 1, 2, 3].map((i) => (
-            <span key={i} className={`alert-cell ${i < g.alert ? "on" : ""}`} />
-          ))}
+    <div className={`app-screen game-screen phase-${phase}`}>
+      <header className="site-header game-header">
+        <BrandLockup compact />
+        <div className="game-room-label">
+          <span>항구의 테이블</span>
+          <strong>{roomName}</strong>
         </div>
-      </section>
+        <div className="game-header-actions">
+          <button type="button" className="utility-button" onClick={() => onUtility("log")}>
+            <span aria-hidden="true">☷</span> 기록
+          </button>
+          <button type="button" className="utility-button" onClick={() => onUtility("rules")}>
+            <span aria-hidden="true">▤</span> 규칙서
+          </button>
+          <button type="button" className="exit-button" onClick={onLobby}>
+            항구 나가기
+          </button>
+        </div>
+      </header>
 
-      <section>
-        <h3>플레이어</h3>
-        {SEATS.map((s) => {
-          const p = g.players[s];
-          return (
-            <div key={s} className={`player-row ${s === HUMAN ? "mine" : ""}`}>
-              <div className="player-head">
-                <b>{p.name}</b>
-                <span className="gold-text">{p.gold}g</span>
+      <main className="table-main">
+        <div className="table-topline">
+          <div>
+            <span className="card-kicker">{phaseMeta.eyebrow}</span>
+            <h1>{phaseMeta.title}</h1>
+            <p>{phaseMeta.prompt}</p>
+          </div>
+          <div className="voyage-status">
+            <div className="round-status">
+              <span>항해 기록</span>
+              <strong>{g.round >= 1 ? `${g.round} / 8` : "출항 전"}</strong>
+              <div className="round-progress" aria-label={`${g.round}라운드 진행`}>
+                <span style={{ width: `${Math.min(100, (g.round / 8) * 100)}%` }} />
               </div>
-              <div className="player-sub">
-                {COMMODITIES.map((c) => (
-                  <span key={c} className="dim">
-                    {COMMODITY_KO[c][0]}
-                    {p.goods[c]}
-                  </span>
+            </div>
+            <div className={`customs-status ${g.alert >= 3 ? "danger" : ""}`}>
+              <span>세관 경계</span>
+              <strong>{g.alert} / 4</strong>
+              <div className="alert-bar" aria-label={`세관 경계 ${g.alert}/4`}>
+                {[0, 1, 2, 3].map((i) => (
+                  <span key={i} className={`alert-cell ${i < g.alert ? "on" : ""}`} />
                 ))}
-                <span className={p.suspicion >= 3 ? "danger" : p.suspicion > 0 ? "warn" : "dim"}>
-                  의심 {p.suspicion}
-                </span>
-                {p.penalty > 0 && <span className="danger">벌점 {p.penalty}</span>}
-                <span className="dim">계약 {completedCount(p)}/3</span>
-                {p.informantUsed && <span className="dim">정보상✓</span>}
               </div>
             </div>
-          );
-        })}
-      </section>
-
-      {phase !== "setup" && (
-        <section>
-          <h3>내 비밀 계약 (비공개)</h3>
-          {me.contracts.map((c) => (
-            <div key={c.uid} className={`contract-chip ${c.status}`}>
-              <b>{c.def.name}</b> <span className="dim">{goodsLabel(c.def.needs)}</span>
-              <span className="tag">
-                {c.status === "done"
-                  ? c.deliveredVia === "smuggle"
-                    ? "밀수 완료"
-                    : "합법 완료"
-                  : c.status === "reserve"
-                    ? "예비"
-                    : `합법 ${c.def.legalReward} / 밀수 ${c.def.smuggleReward}`}
-              </span>
-            </div>
-          ))}
-          {g.informantAnswers.length > 0 && (
-            <div className="informant-memo">
-              {g.informantAnswers.map((a, i) => (
-                <div key={i} className="dim">
-                  🔎 R{a.round} {g.players[a.target].name} · {COMMODITY_KO[a.commodity]} 필요?{" "}
-                  <b className={a.answer ? "warn" : ""}>{a.answer ? "YES" : "NO"}</b>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      <section className="log-section">
-        <h3>기록</h3>
-        <div className="log">
-          {g.log.slice(-14).map((l, i) => (
-            <div key={i}>{l}</div>
-          ))}
+          </div>
         </div>
-      </section>
-    </aside>
+
+        <nav className="phase-track" aria-label="라운드 진행 단계">
+          {PHASE_STEPS.map((step, index) => (
+            <div key={step.label} className={`phase-step ${index < activeStep ? "complete" : ""} ${index === activeStep ? "active" : ""}`}>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <b>{step.label}</b>
+            </div>
+          ))}
+        </nav>
+
+        <section className="table-layout" aria-label="항구의 테이블">
+          <div className="seat-slot seat-north">
+            <PlayerSeat g={g} seat="C" />
+          </div>
+          <div className="seat-slot seat-west">
+            <PlayerSeat g={g} seat="B" />
+          </div>
+          <section className="harbor-table">
+            <div className="table-rim" aria-hidden="true">
+              <span />
+              <b>⚓︎</b>
+              <span />
+            </div>
+            <div className="table-content">
+              <div className="table-content-head">
+                <span>ROUND {g.round || "—"} · PRIORITY {order.join(" → ")}</span>
+                <span className="table-rule">RULE {RULE_VERSION}</span>
+              </div>
+              <div className="stage">{children}</div>
+            </div>
+          </section>
+          <div className="seat-slot seat-east">
+            <PlayerSeat g={g} seat="D" />
+          </div>
+          <div className="seat-slot seat-south">
+            <PlayerSeat g={g} seat="A" />
+          </div>
+          <PrivateDock g={g} phase={phase} />
+        </section>
+      </main>
+    </div>
   );
 }
 
-/* ── 준비: 활성 계약 선택 ── */
+function PlayerSeat({ g, seat }: { g: GameState; seat: Seat }) {
+  const p = g.players[seat];
+  const goodsCount = Object.values(p.goods).reduce((sum, count) => sum + count, 0);
+  const isHuman = seat === HUMAN;
+  return (
+    <article className={`player-seat ${isHuman ? "is-human" : ""}`}>
+      <span className={`seat-token seat-${seat.toLowerCase()}`}>{seat}</span>
+      <div className="seat-person">
+        <div className="seat-name-line">
+          <strong>{p.name}</strong>
+          {isHuman && <span className="you-tag">나</span>}
+        </div>
+        <span className="seat-role">{isHuman ? "내 상단" : "상대 상단"}</span>
+        <div className="seat-stat-line">
+          <span className="gold-text">{p.gold}g</span>
+          <span>상품 {goodsCount}</span>
+          <span className={p.suspicion >= 3 ? "danger" : p.suspicion > 0 ? "warn" : "dim"}>
+            의심 {p.suspicion}
+          </span>
+        </div>
+      </div>
+      <span className="seat-contracts">계약 {completedCount(p)}/3</span>
+    </article>
+  );
+}
+
+function PrivateDock({ g, phase }: { g: GameState; phase: Phase }) {
+  const me = g.players[HUMAN];
+  return (
+    <section className="private-dock">
+      <div className="dock-identity">
+        <span className="dock-token">A</span>
+        <div>
+          <span className="card-kicker">PRIVATE DOCK</span>
+          <strong>{me.name}</strong>
+        </div>
+      </div>
+      <div className="dock-gold">
+        <span>보유 골드</span>
+        <strong>{me.gold}g</strong>
+      </div>
+      <div className="dock-goods">
+        {COMMODITIES.map((commodity) => (
+          <span key={commodity} className="dock-good">
+            <b>{COMMODITY_KO[commodity][0]}</b>
+            <strong>{me.goods[commodity]}</strong>
+          </span>
+        ))}
+      </div>
+      <div className="dock-contracts">
+        <span className="dock-label">비밀 계약</span>
+        <div className="dock-contract-list">
+          {me.contracts.map((contract) => (
+            <span key={contract.uid} className={`dock-contract ${contract.status}`} title={contract.def.name}>
+              <b>{contract.def.name}</b>
+              <small>{contract.status === "done" ? "완료" : contract.status === "reserve" ? "예비" : goodsLabel(contract.def.needs)}</small>
+            </span>
+          ))}
+        </div>
+      </div>
+      <span className="dock-phase-note">{phase === "setup" ? "활성 계약을 선택하세요" : "내 정보는 나에게만 보입니다"}</span>
+    </section>
+  );
+}
+
+function UtilitySheet({ kind, g, onClose }: { kind: Exclude<SheetKind, null>; g: GameState; onClose: () => void }) {
+  const titles: Record<Exclude<SheetKind, null>, string> = {
+    settings: "항구 설정",
+    help: "항해 도움말",
+    rules: "검은 항구 규칙서",
+    log: "항구 기록",
+  };
+  return (
+    <div className="sheet-backdrop" role="presentation" onClick={onClose}>
+      <aside className="utility-sheet" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <div className="sheet-heading">
+          <div>
+            <span className="card-kicker">BLACK HARBOR</span>
+            <h2>{titles[kind]}</h2>
+          </div>
+          <button type="button" className="sheet-close" onClick={onClose} aria-label="닫기">
+            ×
+          </button>
+        </div>
+        {kind === "settings" && (
+          <div className="sheet-body">
+            <div className="sheet-setting"><span>플레이 모드</span><strong>브라우저 데모</strong></div>
+            <div className="sheet-setting"><span>규칙 버전</span><strong>{RULE_VERSION}</strong></div>
+            <p className="hint">실시간 방 설정과 사운드는 온라인 항구가 연결되면 활성화됩니다.</p>
+          </div>
+        )}
+        {kind === "help" && (
+          <div className="sheet-body">
+            <p className="sheet-lead">중앙 항구에 표시되는 현재 단계의 행동만 결정하면 됩니다.</p>
+            <div className="help-list">
+              <p><b>01</b> 항구 소식과 화물을 확인합니다.</p>
+              <p><b>02</b> 봉인 경매와 시장 계획을 잠급니다.</p>
+              <p><b>03</b> 계약을 합법 배송하거나 밀수합니다.</p>
+            </div>
+          </div>
+        )}
+        {kind === "rules" && (
+          <div className="sheet-body">
+            <p className="sheet-lead">네 상단이 8라운드 동안 경매·시장·밀수의 균형을 겨룹니다.</p>
+            <div className="rules-summary">
+              {PHASE_STEPS.slice(1).map((step, index) => (
+                <div key={step.label} className="rule-row"><span>0{index + 1}</span><b>{step.label}</b><small>{["소식과 화물을 공개합니다.", "두 화물에 동시에 입찰합니다.", "두 주문으로 시장을 움직입니다.", "배송 방식으로 위험을 감수합니다.", "세관과 최종 자산을 정산합니다."][index]}</small></div>
+              ))}
+            </div>
+          </div>
+        )}
+        {kind === "log" && (
+          <div className="sheet-body sheet-log">
+            {g.log.length === 0 ? <p className="hint">아직 기록된 항해가 없습니다.</p> : g.log.slice(-20).map((line, index) => <p key={`${line}-${index}`}>{line}</p>)}
+          </div>
+        )}
+      </aside>
+    </div>
+  );
+}
 
 function SetupPanel({ g, onDone }: { g: GameState; onDone: (uids: number[]) => void }) {
   const me = g.players[HUMAN];

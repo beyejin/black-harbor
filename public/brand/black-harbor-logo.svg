@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 900" role="img" aria-labelledby="title desc">
+  <title id="title">Black Harbor — 밤송이 상단</title>
+  <desc id="desc">A merchant guild seal combining a ship's helm, harbor gate, and chestnut burr.</desc>
+
+  <g id="mark" transform="translate(60 20)">
+    <circle cx="320" cy="320" r="236" fill="#111921" stroke="#c89a3d" stroke-width="10"/>
+    <circle cx="320" cy="320" r="205" fill="none" stroke="#2f7c7a" stroke-width="4"/>
+
+    <!-- Eight-spoke ship helm. The pointed ends echo a chestnut burr. -->
+    <g fill="none" stroke="#c89a3d" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="320" cy="320" r="126" stroke-width="12"/>
+      <path d="M320 194V116 M446 320h78 M320 446v78 M194 320h-78" stroke-width="13"/>
+      <path d="m409 231 55-55 M409 409l55 55 M231 409l-55 55 M231 231l-55-55" stroke-width="13"/>
+    </g>
+    <g fill="#c89a3d">
+      <circle cx="320" cy="108" r="17"/>
+      <circle cx="532" cy="320" r="17"/>
+      <circle cx="320" cy="532" r="17"/>
+      <circle cx="108" cy="320" r="17"/>
+      <circle cx="472" cy="168" r="17"/>
+      <circle cx="472" cy="472" r="17"/>
+      <circle cx="168" cy="472" r="17"/>
+      <circle cx="168" cy="168" r="17"/>
+    </g>
+
+    <!-- Burr crown / merchant-guild crest. -->
+    <path d="M320 184 298 212l-4-31-28 18 8-35-34 2 29-24-31-17 36-1-10-32 31 18 5-34 20 29 20-29 5 34 31-18-10 32 36 1-31 17 29 24-34-2 8 35-28-18-4 31z" fill="#c89a3d"/>
+    <circle cx="320" cy="274" r="46" fill="#111921" stroke="#c89a3d" stroke-width="8"/>
+
+    <!-- Harbor gate: the hidden center of the seal. -->
+    <g fill="none" stroke="#f3e8d0" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M260 392v-57c0-34 27-61 60-61s60 27 60 61v57" stroke-width="14"/>
+      <path d="M248 392h144 M277 353h86 M277 376h86" stroke-width="8"/>
+      <path d="M289 315v77 M320 315v77 M351 315v77" stroke-width="7"/>
+    </g>
+    <path d="M253 402h134l-16 20H269z" fill="#2f7c7a"/>
+    <path d="M291 437h58" stroke="#c89a3d" stroke-width="8" stroke-linecap="round"/>
+  </g>
+
+  <g text-anchor="middle">
+    <text x="380" y="740" fill="#c89a3d" font-family="Georgia, Times New Roman, serif" font-size="42" letter-spacing="10">BLACK HARBOR</text>
+    <path d="M272 775h216" stroke="#2f7c7a" stroke-width="3"/>
+    <path d="m369 775 11-11 11 11-11 11z" fill="#c89a3d"/>
+    <text x="380" y="824" fill="#2f7c7a" font-family="Noto Sans KR, Apple SD Gothic Neo, sans-serif" font-size="23" letter-spacing="5">밤송이 상단</text>
+  </g>
+</svg>

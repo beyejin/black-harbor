@@ -117,7 +117,7 @@ console.log("\n=== seed 42 최종 ===");
 for (const s of ranking(g)) {
   const p = g.players[s];
   console.log(
-    `${s}: 점수 ${finalScore(p)} (골드 ${p.gold}, 벌점 ${p.penalty}, 계약 ${completedCount(p)}/3)`
+    `${s}: 점수 ${finalScore(p, g.prices)} (골드 ${p.gold}, 벌점 ${p.penalty}, 계약 ${completedCount(p)}/3)`
   );
 }
 console.log(g.log.slice(-10).join("\n"));

@@ -1,4 +1,5 @@
 import { COMMODITIES, INFORMANT_COST, SEATS } from "./data";
+import { residualValueAtPrice } from "./scoring";
 import { canDeliver, completedCount } from "./engine";
 import type {
   Bid,
@@ -105,12 +106,13 @@ export function aiMarket(state: GameState, seat: Seat): MarketOrder[] {
     }
   }
 
-  // 계약에 안 쓰는 잉여 상품은 가격이 잔존 가치보다 높으면 판매
+  // 계약에 안 쓰는 잉여 상품은 현재 시장 가격이 잔존 가치보다 높으면 판매
   if (orders.length < 2) {
     const surplus = COMMODITIES.filter(
       (g) =>
         p.goods[g] - missing[g] > 0 &&
         p.goods[g] > 0 &&
+        state.prices[g] > residualValueAtPrice(state.prices[g]) &&
         missing[g] === 0 &&
         state.exportCap[g] > 0 &&
         !orders.some((o) => (o.type === "BUY" || o.type === "SELL") && o.commodity === g)

@@ -11,7 +11,6 @@ export const COMMODITY_KO: Record<Commodity, string> = {
 };
 
 export const BASE_PRICE: Goods = { SPICE: 5, IRON: 4, SILK: 6, RELIC: 8 };
-export const RESIDUAL_VALUE: Goods = { SPICE: 2, IRON: 2, SILK: 3, RELIC: 4 };
 export const BASE_IMPORT: Goods = { SPICE: 5, IRON: 6, SILK: 4, RELIC: 0 };
 export const BASE_EXPORT: Goods = { SPICE: 4, IRON: 5, SILK: 4, RELIC: 2 };
 

@@ -7,7 +7,6 @@ import {
   COMMODITY_KO,
   INFORMANT_COST,
   MAX_CONTRACTS_DONE,
-  RESIDUAL_VALUE,
   SEATS,
   START_GOLD,
   buildCargoDeck,
@@ -19,6 +18,8 @@ import {
   zeroGoods,
   NEWS_CARDS,
 } from "./data";
+import { calculateFinalScore, marketPriceAfterNet } from "./scoring";
+
 import type {
   AuctionResult,
   Bid,
@@ -156,11 +157,11 @@ export function resolveInformant(state: GameState, queries: Partial<Record<Seat,
     if (p.isHuman) {
       state.informantAnswers.push({ round: state.round, target: q.target, commodity: q.commodity, answer });
     }
-    log(state, `${p.name} 정보상 고용 → ${target.name} 조사 (질문 내용은 비공개)`);
+    log(state, `${p.name} 정보상 고용 (조사 대상·질문 내용은 비공개)`);
   }
 }
 
-// 7.4~7.5 이중 봉인 경매
+// 7.4~7.5 화물 2개 동시 입찰
 export function resolveAuction(state: GameState, bids: Record<Seat, Bid>): AuctionResult {
   const order = rotationOrder(state.round, state.priorityOffset);
   const [cargoA, cargoB] = state.cargos;
@@ -295,23 +296,16 @@ export function resolveMarket(
     }
   }
 
-  // 8.7 다음 라운드 가격
+  // 8.7 시장 결과 가격 갱신
   const priceChanges: Partial<Record<Commodity, number>> = {};
   for (const commodity of COMMODITIES) {
     const net = fills
       .filter((f) => f.commodity === commodity)
       .reduce((s, f) => s + (f.side === "BUY" ? f.filled : -f.filled), 0);
-    let delta = 0;
-    if (net >= 4) delta = 2;
-    else if (net >= 1) delta = 1;
-    else if (net <= -4) delta = -2;
-    else if (net <= -1) delta = -1;
-    if (state.round < 8 && delta !== 0) {
-      const next = Math.min(12, Math.max(1, state.prices[commodity] + delta));
-      if (next !== state.prices[commodity]) {
-        priceChanges[commodity] = next - state.prices[commodity];
-        state.prices[commodity] = next;
-      }
+    const next = marketPriceAfterNet(state.prices[commodity], net);
+    if (next !== state.prices[commodity]) {
+      priceChanges[commodity] = next - state.prices[commodity];
+      state.prices[commodity] = next;
     }
   }
   return { fills, priceChanges };
@@ -403,12 +397,8 @@ export function resolveCustoms(state: GameState): CustomsEvent[] {
 }
 
 // 4.1 최종 점수
-export function finalScore(p: Player): number {
-  return (
-    p.gold +
-    COMMODITIES.reduce((s, c) => s + p.goods[c] * RESIDUAL_VALUE[c], 0) -
-    p.penalty
-  );
+export function finalScore(p: Player, prices: Goods): number {
+  return calculateFinalScore(p.gold, p.goods, prices, p.penalty);
 }
 
 // 4.2 동점 처리 포함 순위
@@ -417,7 +407,7 @@ export function ranking(state: GameState): Seat[] {
   return [...SEATS].sort((s1, s2) => {
     const p1 = state.players[s1];
     const p2 = state.players[s2];
-    const d1 = finalScore(p2) - finalScore(p1);
+    const d1 = finalScore(p2, state.prices) - finalScore(p1, state.prices);
     if (d1 !== 0) return d1;
     const d2 = completedCount(p2) - completedCount(p1);
     if (d2 !== 0) return d2;

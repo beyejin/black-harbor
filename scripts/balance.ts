@@ -14,8 +14,9 @@ import {
   resolveMarket,
   startRound,
 } from "../src/game/engine";
-import { COMMODITIES, RESIDUAL_VALUE, makeRng } from "../src/game/data";
-import type { Bid, DeliveryChoice, InformantQuery, MarketOrder, Seat } from "../src/game/types";
+import { COMMODITIES, makeRng } from "../src/game/data";
+import { residualValueAtPrice } from "../src/game/scoring";
+import type { Bid, DeliveryChoice, Goods, InformantQuery, MarketOrder, Seat } from "../src/game/types";
 
 const N_GAMES = 500;
 
@@ -40,9 +41,9 @@ interface Metrics {
   auctionsTotal: number;
 }
 
-function midScore(p: { gold: number; goods: Record<string, number>; penalty: number }): number {
+function midScore(p: { gold: number; goods: Goods; penalty: number }, prices: Goods): number {
   return (
-    p.gold + COMMODITIES.reduce((s, c) => s + p.goods[c] * RESIDUAL_VALUE[c], 0) - p.penalty
+    p.gold + COMMODITIES.reduce((s, c) => s + p.goods[c] * residualValueAtPrice(prices[c]), 0) - p.penalty
   );
 }
 
@@ -120,7 +121,7 @@ function runConfig(label: string, startGold: number, bonus: Partial<Record<Seat,
         } else boundStreak[c] = 0;
       }
       if (r === 4) {
-        leaderR4 = [...SEATS].sort((x, y) => midScore(g.players[y]) - midScore(g.players[x]))[0];
+        leaderR4 = [...SEATS].sort((x, y) => midScore(g.players[y], g.prices) - midScore(g.players[x], g.prices))[0];
       }
     }
 
@@ -129,7 +130,7 @@ function runConfig(label: string, startGold: number, bonus: Partial<Record<Seat,
     m.seatWins[ranks[0]]++;
     m.investigations.push(invCount);
     m.informantUses.push(SEATS.filter((s) => g.players[s].informantUsed).length);
-    const scores = SEATS.map((s) => finalScore(g.players[s]));
+    const scores = SEATS.map((s) => finalScore(g.players[s], g.prices));
     m.scores.push(...scores);
     m.scoreSpreads.push(Math.max(...scores) - Math.min(...scores));
     m.winnerContracts.push(completedCount(g.players[ranks[0]]));
